@@ -7,28 +7,39 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 
--- | Pretty print a term (simple version)
+-- | Debug: show token stream
+dbgTokens :: String -> IO ()
+dbgTokens input = do
+  let tokens = lexer input
+  putStrLn "=== TOKENS ==="
+  mapM_ (putStrLn . ("  " ++) . show) tokens
+
+-- | Pretty print a term in Haskell-like syntax
 ppTerm :: Term -> String
 ppTerm (Type n) = "Type" ++ show n
 ppTerm (Pi "_" a b) = ppTerm a ++ " → " ++ ppTerm b
-ppTerm (Pi x a b) = "(Π (" ++ x ++ " : " ++ ppTerm a ++ ") " ++ ppTerm b ++ ")"
+ppTerm (Pi x a b) = "(" ++ x ++ " : " ++ ppTerm a ++ ") → " ++ ppTerm b
 ppTerm (Lam x b) = "λ" ++ x ++ ". " ++ ppTerm b
-ppTerm (App (App (Ref "match") scrut) branches) =
-  "match " ++ ppTerm scrut ++ " { ... }"
-ppTerm (App f a) = "(" ++ ppTerm f ++ " " ++ ppTerm a ++ ")"
+ppTerm (App f a) = ppTerm f ++ " " ++ ppAtom a
 ppTerm (Ref n) = n
+ppTerm (Con "True") = "True"
+ppTerm (Con "False") = "False"
 ppTerm (Con n) = n
 ppTerm (Data d) = "data " ++ dataName d
-ppTerm (Match s bs) = "match " ++ ppTerm s ++ " { " ++
-  unwords (map ppBranch bs) ++ " }"
-ppTerm (Lam x (Lam y b)) = "λ" ++ x ++ " " ++ y ++ ". " ++ ppTerm b
+ppTerm (Match s bs) = "match " ++ ppTerm s ++ "\n" ++
+  unlines (map ppBranch bs)
+
+ppAtom :: Term -> String
+ppAtom t@(App _ _) = "(" ++ ppTerm t ++ ")"
+ppAtom t = ppTerm t
 
 ppBranch :: Branch -> String
-ppBranch (Branch c vars body) = "(" ++ c ++ " " ++ unwords vars ++ " " ++ ppTerm body ++ ")"
+ppBranch (Branch c [] body) = "  | " ++ c ++ " → " ++ ppTerm body
+ppBranch (Branch c vars body) = "  | " ++ c ++ " " ++ unwords vars ++ " → " ++ ppTerm body
 
 -- | Pretty print a type error
 ppError :: TypeError -> String
-ppError (TypeMismatch expected actual term ty) =
+ppError (TypeMismatch expected actual term _ty) =
   "❌ Type mismatch\n" ++
   "  Expected type: " ++ ppTerm expected ++ "\n" ++
   "  Actual type:   " ++ ppTerm actual ++ "\n" ++
@@ -79,13 +90,18 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
+    ("--tokens" : file : _) -> do
+      content <- readFile file
+      dbgTokens content
+    ("--tokens" : _) -> do
+      content <- getContents
+      dbgTokens content
     [] -> do
-      -- Read from stdin
       input <- getContents
       loadAndCheck input
     [file] -> do
       content <- readFile file
       loadAndCheck content
     _ -> do
-      hPutStrLn stderr "Usage: xinfeng-poc [file]"
+      hPutStrLn stderr "Usage: xinfeng-poc [--tokens] [file]"
       exitFailure

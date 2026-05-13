@@ -1,3 +1,7 @@
-;; Minimal match test
-(data Bool True False)
-(define id (Π (b : Bool) Bool) (λ b (match b (True True) (False False))))
+-- Minimal match test
+data Bool = True | False
+
+id : (b : Bool) -> Bool
+id b = match b
+  | True -> True
+  | False -> False

@@ -13,9 +13,12 @@ build-type:         Simple
 executable xinfeng-poc
   main-is:          Main.hs
   hs-source-dirs:   app, src
+  other-modules:
+    , Xinfeng.Syntax
+    , Xinfeng.Parser
+    , Xinfeng.Checker
+    , Xinfeng.Eval
   build-depends:
     , base        >=4.17
-    , parsec      >=3.1
-    , containers >=0.6
   default-language: Haskell2010
   ghc-options:      -Wall

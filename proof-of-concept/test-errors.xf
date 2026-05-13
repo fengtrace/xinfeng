@@ -1,14 +1,19 @@
-;; Test: error cases
-(data Bool True False)
+-- Error test cases
+data Bool = True | False
 
-;; Should SUCCEED - identity function
-(define id (Π (b : Bool) Bool) (λ b b))
+-- Should SUCCEED - identity function
+id : (b : Bool) -> Bool
+id b = b
 
-;; Should FAIL - type mismatch: returns Bool instead of Bool→Bool
-(define broken (Π (b : Bool) (Π (_ : Bool) Bool)) (λ b b))
+-- Should FAIL - type mismatch: body returns Bool, not Bool→Bool
+broken : (b : Bool) -> Bool -> Bool
+broken b = b
 
-;; Should SUCCEED - constant function
-(define const_true (Π (b : Bool) Bool) (λ b True))
+-- Should SUCCEED - constant function
+const_true : (b : Bool) -> Bool
+const_true b = True
 
-;; Should FAIL - missing branch (only covers True)
-(define partial (Π (b : Bool) Bool) (λ b (match b (True True))))
+-- Should FAIL - missing branch (only covers True)
+partial : (b : Bool) -> Bool
+partial b = match b
+  | True -> True

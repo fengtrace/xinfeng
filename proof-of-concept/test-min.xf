@@ -1,2 +1,2 @@
-;; Test minimal
-(data Bool True False)
+-- Test minimal
+data Bool = True | False
