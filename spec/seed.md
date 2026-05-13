@@ -1,4 +1,4 @@
-# 信风 Seed Core — Specification v0.1
+# 信风 Seed Core — Specification v0.2
 
 > *This document defines the minimal core of the 信风 language. It is designed to be read and understood by an AI agent in a single session.*
 
@@ -8,16 +8,23 @@
 
 1. **Verifiability** — Every program can be mechanically checked for correctness
 2. **Searchability** — The type system prunes the generation space for LLM-based agents
-3. **Auditability** — Every definition carries provenance via signature chains
-4. **Stability** — The core is small enough to fit in one agent's context window
+3. **Minimality** — The core is small enough to fit in one agent's context window
+4. **Runnability** — The first working version matters more than the perfect design
 
-## The Seed Kernel
+## Design Principle
 
-The seed kernel is the minimal set of primitives needed to define everything else. It consists of:
+> The seed core contains only what is needed for semantic correctness.
+> Everything else — storage, naming, trust, packaging — is a layer on top.
 
-### 1. Terms
+## The Seed Core (Three Components)
 
-Everything in 信风 is a *term*. There are no separate "type" and "value" worlds — they are unified (see: dependent types).
+The seed kernel is the minimal set of primitives needed to define and verify programs. It has exactly three parts:
+
+---
+
+### 1. Terms & Types (Dependent Type System)
+
+Everything in 信风 is a *term*. There are no separate "type" and "value" worlds — they are unified.
 
 A term is one of:
 
@@ -25,44 +32,44 @@ A term is one of:
 |------|-------------|---------|
 | `Typeₙ` | Universe levels | `Type₀`, `Type₁`, ... |
 | `(x : A) → B` | Dependent function type (Π-type) | `(n : Nat) → Vec n Bool` |
-| `λ(x : A). t` | Lambda abstraction | `λ(x : Nat). x + 1` |
+| `λx. t` | Lambda abstraction | `λx. x + 1` |
 | `f a` | Application | `head list` |
 | `data C := c₁ \| c₂ \| ...` | Inductive data type | `data Bool := True \| False` |
 | `match t { ... }` | Pattern matching | `match b { True → 1; False → 0 }` |
-| `@hash` | Reference to another definition | `@a3f2bc...` |
 
-**Key points:**
-- No variable names in the canonical representation — references use content hashes or positional indices
-- Names are annotations provided by agents for their own reference, not part of the core
-- The full term includes its *provenance* (creator hash, timestamp, signature)
+**What a term is:**
+- A term can be a *type* (if its own type is some `Typeₙ`)
+- A term can be a *value* (if its type is a concrete type like `Nat`)
+- There is no syntactic distinction — they are the same thing
 
-### 2. Types
+**Key points about naming:**
+- Names are the **primary identifiers** inside a definition. Variables have names, functions have names, types have names.
+- When agent A writes `sort`, it writes the name `sort`. The language core does not ask "what is the hash of sort".
+- Cross-definition references use names. A function calling `append` writes `append`, not a hash.
 
-Types are terms. A type is a term of some universe level `Typeₙ`.
-
-Universe hierarchy:
-```
-Type₀ : Type₁
-Type₁ : Type₂
-...
-```
+**The name question is resolved at a different layer** (see Storage Layer below), not in the core.
 
 **Dependent types** mean that types can depend on values:
+
 ```
-Vec : (n : Nat) → (a : Type₀) → Type₀  — a vector type parameterized by length
+Vec : (n : Nat) → (a : Type₀) → Type₀
 ```
 
 This allows:
+
 ```
 append : (n : Nat) → (m : Nat) → Vec n Bool → Vec m Bool → Vec (n + m) Bool
 ```
+
 The type of the result depends on the *values* of the inputs.
 
-### 3. Contracts (Specifications)
+---
+
+### 2. Contracts
 
 Every definition may carry a *contract* — a set of preconditions, postconditions, and invariants expressed as types.
 
-A contract is not a comment. It is executable by the type checker.
+A contract is not a comment. It is part of the type and is checked by the kernel.
 
 ```
 sort : (v : Vec n Int) → Vec n Int
@@ -70,54 +77,76 @@ sort ≺ sorted: (result : Vec n Int) → Sorted result
      ≺ permutation: Permutation v result
 ```
 
-The `≺` symbol introduces the contract. The contract is verified by the kernel.
+The `≺` symbol introduces the contract. The kernel verifies that the body satisfies the contract.
 
-**Design principle:** The contract should be:
+**What makes a good contract:**
 - Specific enough to prove correctness
 - General enough to not constrain implementation
-- Machine-checkable
+- Machine-checkable by the kernel
 
-### 4. Content Hash
+---
 
-Every definition in 信风 is identified by a content hash:
+### 3. Evaluation (Reduction)
+
+The evaluator reduces terms to normal form:
 
 ```
-hash = SHA256(canonical_representation_of_definition)
+eval : (term, context) → normal_form
 ```
 
-**Properties:**
-- The hash is deterministic — same definition always produces the same hash
-- Changing anything produces a different hash
-- Dependencies between definitions are expressed as hash references
-- Versioning is implicit — "version" is just a specific hash
+**Critical separation:** The kernel (type checker) verifies correctness *without* evaluating. Evaluation happens separately — possibly on different systems, at different times, by different agents.
 
-**But names exist too!** Agents (especially LLM-based ones) think in names. The rule:
+Why this matters:
+- A program can be verified once and evaluated many times
+- Evaluation can be optimized without changing the verification rules
+- An agent can check whether code is correct without having to run it
 
-- **Storage/verification uses hashes** — the dependency graph, the type checker, the signature chain
-- **Generation/editing uses names** — agents refer to definitions by human-readable names when generating code
-- **Resolution maps names to hashes** — each session maintains a name→hash mapping for convenience
+---
 
-### 5. Signature Chain
+## What Is NOT in the Core
 
-Every definition can be signed by its author agent:
+These are important — they just belong to the layers around the core, not inside it.
 
-```jsonc
-{
-  "definitionHash": "a3f2bc...",
-  "authorKey": "agent_public_key_identifier",
-  "timestamp": "ISO-8601",
-  "signature": "base64_encoded_signature"
-}
+| Concept | Where it lives | Why not in core |
+|---------|---------------|-----------------|
+| Content hashes | Storage layer | Names are what agents use; hashes are for storage and integrity |
+| Signatures | Storage layer | Trust is an infrastructure concern, not a semantic one |
+| Name resolution | Storage layer | Name → content mapping is a service, not a language feature |
+| Modules / packages | Storage layer | Grouping definitions is a packaging concern |
+| I/O, file system | Runtime | The core only defines terms and types; it does not touch the world |
+
+This separation means the core can stay small and stable while the outer layers evolve independently.
+
+## The Storage Layer (Sketch)
+
+The storage layer sits outside the core and provides these services:
+
+**Name resolution:**
 ```
+resolve(name, context) → Definition
+```
+Takes a name and returns the definition it refers to. The resolution strategy can be:
+- A local mapping file (`names.md`)
+- A network registry
+- An agent's session memory
+- Any combination
 
-A signature proves:
-1. The definition's content is authentic (not tampered with)
-2. The author claims authorship
-3. The definition existed at the given timestamp
+**Content addressing (optional, for verification):**
+```
+hash(definition) → content_hash
+```
+Produces a deterministic hash of a definition's canonical form. Used to detect tampering.
 
-**Trust propagation:** When agent A uses a definition signed by agent B, and B is trusted by A, A can trust the definition without re-verifying it. Trust is a directed graph of agent keys.
+**Signatures (optional, for trust):**
+```
+sign(definition, agent_key) → signature
+verify(definition, signature, agent_key) → bool
+```
+Binds an agent's identity to a specific version of a definition.
 
-### 6. The Kernel (Type Checker)
+These are **pluggable**. The core does not depend on them. An agent can use the language without hashes or signatures — or with them.
+
+## The Kernel (Type Checker)
 
 The kernel is the **only immutable component** of 信风. It does one thing:
 
@@ -128,49 +157,52 @@ check : (term, claimed_type, context) → Result
 Where:
 - `term` — the definition to check
 - `claimed_type` — what the definition claims to be (its type + contract)
-- `context` — available definitions and their types
+- `context` — available definitions and their types (provided by the storage layer)
 
 Returns either:
 - `✅ Valid` — the term has the claimed type and satisfies its contract
 - `❌ Error(reason)` — type mismatch, contract violation, or missing dependency
 
 **The kernel must be:**
-- Small enough to fit in one agent's context window (~500 definitions max)
+- Small enough to fit in one agent's context window
 - Simple enough to be formally verified by another kernel instance
 - Stable — once agreed upon, the kernel's rules do not change without full consensus
 
-### 7. Evaluation (Reducer)
+## What "Running" Means
 
-Separate from the kernel, the evaluator reduces terms to normal form:
+The first working version of 信风 is:
 
-```
-eval : (term, context) → normal_form
-```
+> A kernel that can load a definition, check its type against its claimed type, and report pass/fail.
 
-**Key point:** The kernel verifies correctness *without* evaluating. Evaluation happens separately — possibly on different systems, at different times, by different agents.
+This is the "minimum viable thing." It does not need:
+- A fancy storage layer
+- Signatures
+- Hash resolution
+- A package manager
+- IO
 
-This separation means:
-- A program can be verified once and evaluated many times
-- Evaluation can be optimized without changing the verification rules
-- An agent can verify code without running it (important for security, cost, context)
+It just needs the three components above — types, contracts, evaluation — wrapped in a thin loader.
 
 ## Self-Bootstrapping Path
 
-1. **Phase 0 — Seed specification** (this document)
-2. **Phase 1 — Reference kernel** implemented in an existing language (Rust/Haskell)
+1. **Phase 0 — Seed specification** (this document) ✓
+2. **Phase 1 — Minimal runnable kernel** in an existing language (Rust or Haskell)
+   - Only needs to parse definitions, type-check, and evaluate
+   - Storage layer can be a flat file or hardcoded context
+   - No signatures, no hashes, no name resolution
 3. **Phase 2 — Standard library** written in 信风, verified by Phase 1 kernel
-4. **Phase 3 — New kernel** for 信风 written in 信风, verified by Phase 1 kernel
-5. **Phase 4 — Phase 1 kernel retired**; 信风 is now self-hosting
-6. **Phase 5 — Toolchain** (evaluator, signature manager, name resolver) written in 信风
+4. **Phase 3 — New kernel** written in 信风, verified by Phase 1 kernel
+5. **Phase 4 — Phase 1 kernel retired**; 信风 is self-hosting
 
 ## Summary
 
-The seed core is not a programming language in the traditional sense. It is a **verifiable definition graph** with:
-- A unified term/type system (dependent types)
-- First-class contracts
-- Content-addressed definitions
-- Agent signature chains
+The seed core is a **minimal dependent type system** with:
+- Unified terms and types
+- First-class contracts as part of types
+- A separate evaluator for normalization
 - A tiny, trusted kernel for verification
-- A separate evaluator for execution
+- Nothing else
 
-Everything else — syntax, libraries, tooling — builds on top of this core.
+Everything else — names, hashes, signatures, storage — lives in outer layers that can evolve independently.
+
+The goal right now is not to design the perfect language. It is to **get something running**.

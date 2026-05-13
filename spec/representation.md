@@ -1,109 +1,42 @@
-# 信风 Representation — v0.1
+# 信风 Representation — v0.2
 
-> *This document describes how 信风 programs are represented, both for agent consumption and for storage/verification.*
+> *This document describes how 信风 programs are represented for agent consumption.*
 
-## The Problem
+## Principle
 
-Traditional programming languages use text as their primary representation. Text is optimized for human reading and writing — sequential, linear, character-based.
+Names are the native identifier. Hash is a storage implementation detail.
 
-信风's primary consumers are AI agents. Text is one possible representation, but not the only one — and likely not the best one.
+## Core Notation (S-Expression)
 
-## Dual Representation
-
-信风 uses two representations:
-
-### Internal Representation (IR): Structured AST with Provenance
-
-This is the canonical form — what gets hashed, signed, and stored.
-
-```jsonc
-{
-  "format": "xinfeng-ir-v1",
-  "definitions": [
-    {
-      "hash": "a3f2bc...",
-      "kind": "function",
-      "name": "append",  // Agent-facing name, not part of the hash
-      "type": {
-        "kind": "pi",
-        "param": {
-          "name": "n",
-          "type": { "kind": "ref", "hash": "@Nat" }
-        },
-        "param2": {
-          "name": "m",
-          "type": { "kind": "ref", "hash": "@Nat" }
-        },
-        "result": {
-          "kind": "pi",
-          "param": {
-            "name": "v1",
-            "type": { "kind": "app", "fn": "@Vec", "args": ["@Nat", "n"] }
-          },
-          "result": {
-            "kind": "pi",
-            "param": {
-              "name": "v2",
-              "type": { "kind": "app", "fn": "@Vec", "args": ["@Nat", "m"] }
-            },
-            "result": {
-              "kind": "app",
-              "fn": "@Vec",
-              "args": [
-                { "kind": "app", "fn": "@add", "args": ["n", "m"] },
-                "@Bool"
-              ]
-            }
-          }
-        }
-      },
-      "contract": {
-        "sorted": {
-          "kind": "app",
-          "fn": "@Sorted",
-          "args": [{ "kind": "ref", "hash": "@result" }]
-        }
-      },
-      "body": { /* ... lambda term ... */ },
-      "provenance": {
-        "author": "agent_key_abc...",
-        "timestamp": "2026-05-13T10:00:00Z",
-        "signature": "base64...",
-        "dependencies": [
-          { "hash": "@Nat", "resolved": "3b7e..." },
-          { "hash": "@Vec", "resolved": "9f1a..." },
-          { "hash": "@add", "resolved": "c4d2..." }
-        ]
-      }
-    }
-  ]
-}
-```
-
-**This is the truth.** Everything else is a projection.
-
-### Projected Representation 1: S-Expression (for agent editing)
-
-A lisp-like notation optimized for LLM token efficiency and structural clarity:
+The primary representation for agent consumption is a structured S-expression form:
 
 ```lisp
+;; A simple type definition
+(data Bool
+  True
+  False)
+
+;; A dependent function type with contract
 (define append
   :type (Π (n : Nat) (m : Nat) (v1 : (Vec n Bool)) (v2 : (Vec m Bool))
          (Vec (+ n m) Bool))
   :contract (sorted (Sorted result))
-  :provenance {hash "a3f2bc..." author "agent_abc..." signature "base64..."}
-  :body
   (λ (n m v1 v2)
     (match v1
       nil    → v2
       (:: h t) → (:: h (append t v2)))))
 ```
 
-This is what an agent *works with*. It's structured, explicit, and token-efficient. The S-expression format maps directly to the IR.
+**Key rules:**
+- Names are plain words: `append`, `Bool`, `Vec`, `n`, `m`
+- λ binds named parameters
+- `match` branches use named constructors
+- Cross-references use names, not hashes
+- `Π` (uppercase pi) denotes dependent function types
 
-### Projected Representation 2: Named Form (for agent cross-reference)
+## Human-Readable Projection
 
-When agents discuss code, they use named references:
+Agents may optionally project this into a more compact notation for quick scanning:
 
 ```
 fn append (n: Nat) (m: Nat) (v1: Vec n Bool) (v2: Vec m Bool) → Vec (add n m) Bool
@@ -114,29 +47,58 @@ fn append (n: Nat) (m: Nat) (v1: Vec n Bool) (v2: Vec m Bool) → Vec (add n m) 
     }
 ```
 
-This is the most "human-like" representation, but it's generated from the IR, not stored as the source of truth. It's for quick reading and discussion.
+This is always **read-only**. The S-expression form is the source of truth.
 
-## How Agents Work with 信风
+## How an Agent Works with 信风
 
 ### Session Flow
 
-1. **Name resolution start**: Agent loads a name→hash mapping for familiar definitions
-2. **Generation**: Agent writes code in S-expression form using named references
-3. **Resolution**: Names are resolved to hashes (using the name→hash mapping)
-4. **Verification**: The resolved IR is sent to the kernel for type-checking
-5. **Signing**: If verification passes, the agent signs the definition
-6. **Storage**: The signed IR is stored in a content-addressed store
+1. **Load context** — Agent loads known definitions (name → type + body)
+2. **Write** — Agent writes new definitions using names
+3. **Resolve** — If a name is not in local context, agent queries the storage layer
+4. **Check** — Kernel verifies the definition against its claimed type + contract
+5. **Store** — (Optional) The definition is stored with a content hash and optional signature
 
-### When a Name Collides
+### Storage Layer Interface (Sketch)
 
-Names are *annotations*, not identifiers. If two agents assign different names to the same hash, that's fine — the hash is the true identity. If the same name points to different hashes in different contexts, the name resolver disambiguates by context.
+The storage layer provides:
 
-### Representation Choice
+```
+lookup(name) → (type, body, metadata)?
+```
 
-For this project's initial implementation, we use:
+This is the **only bridge** between the core and the outside world. The storage layer can be:
+- A flat file of definitions
+- An in-memory map
+- A content-addressed store (name → hash → content)
+- A remote registry
 
-1. **S-Expression** as the primary working representation (minimal, structured, LLM-friendly)
-2. **JSON IR** as the storage format (canonical, hashable, signable)
-3. **Named notation** as a secondary view for quick reference
+The core does not care which.
 
-The kernel always operates on JSON IR. Everything else is a projection.
+### Optional: Content Hash
+
+For integrity verification, each definition can have an associated hash:
+
+```
+hash = SHA256(canonical_form(definition))
+```
+
+But this is **never used inside definitions**. It is metadata attached to definitions in the storage layer.
+
+### Optional: Signatures
+
+For trust, a definition can be signed by its author agent. Signatures bind an agent's identity to a specific content hash:
+
+```
+sign(definition, private_key) → { definition_hash, author, timestamp, sig }
+verify(signature) → valid/invalid
+```
+
+This is pure storage-layer concern. The core never looks at signatures.
+
+## What This Means
+
+- An agent writes code the same way it would write in any language — by using names
+- No mental overhead from hashes during code generation
+- The storage layer is free to evolve (from a flat file to a distributed registry) without changing the language core
+- The first runnable version does not need hashes, signatures, or any storage beyond an in-memory map
