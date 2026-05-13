@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# feng-git (g) — agent-native git wrapper
+# Usage:
+#   g           — git status (structured JSON)
+#   g <msg>     — stage all + commit + push (msg is short summary)
+#   g --log     — structured git log
+#   g --diff    — structured diff of unstaged changes
+#   g --help    — this message
+
+set -euo pipefail
+
+CMD="${1:-status}"
+
+case "$CMD" in
+  --help|-h)
+    echo "feng-git (g) — agent-native git wrapper"
+    echo ""
+    echo "  g           — git status (structured JSON)"
+    echo "  g <msg>     — stage all + commit + push"
+    echo "  g --log     — structured git log (last 10)"
+    echo "  g --diff    — structured diff of unstaged changes"
+    echo "  g --help    — this message"
+    ;;
+
+  --log)
+    # Structured log: JSON per commit
+    git log --oneline -10 --format='{%n  "commit": "%h",%n  "subject": "%s",%n  "author": "%an",%n  "date": "%ar"%n}' | sed 's/^/  /'
+    ;;
+
+  --diff)
+    # Structured diff: files changed as JSON array
+    echo "{"
+    echo '  "changed": ['
+    git diff --stat | while IFS='|' read -r line; do
+      file=$(echo "$line" | awk '{print $1}')
+      changes=$(echo "$line" | awk '{for(i=2;i<=NF;i++) printf "%s ", $i}')
+      [ -n "$file" ] && echo "    {\"file\": \"$file\", \"summary\": \"${changes}\"},"
+    done | sed '$s/,$//'
+    echo '  ]'
+    echo "}"
+    ;;
+
+  --status|-s)
+    # Structured status
+    STAGED=$(git diff --cached --stat | tail -1 | awk '{print $1}')
+    UNSTAGED=$(git diff --stat | tail -1 | awk '{print $1}')
+    BRANCH=$(git branch --show-current)
+    HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
+    echo "{"
+    echo "  \"branch\": \"${BRANCH}\","
+    echo "  \"head\": \"${HASH}\","
+    echo "  \"staged\": ${STAGED:-0},"
+    echo "  \"unstaged\": ${UNSTAGED:-0},"
+    echo "  \"unpushed\": $(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ')"
+    echo "}"
+    ;;
+
+  *)
+    # Commit: stage all + commit + push
+    MSG="$*"
+    
+    # Gather context for structured commit
+    BRANCH=$(git branch --show-current)
+    FILES_CHANGED=$(git diff --stat | tail -1 | awk '{print $1}')
+    FILES_CHANGED=${FILES_CHANGED:-0}
+    
+    # Stage everything
+    git add -A 2>/dev/null || true
+    
+    # Detect if there's anything to commit
+    if git diff --cached --quiet 2>/dev/null; then
+      echo '{"status": "nothing-to-commit"}'
+      exit 0
+    fi
+    
+    # Build commit message
+    COMMIT_MSG="${MSG}"
+    
+    # Commit
+    git commit -m "$COMMIT_MSG" 2>/dev/null || {
+      echo '{"status": "commit-failed"}'
+      exit 1
+    }
+    
+    # Push
+    git push origin "$BRANCH" 2>/dev/null || {
+      echo '{"status": "push-failed", "branch": "'"$BRANCH"'"}'
+      exit 1
+    }
+    
+    # Output structured result
+    HASH=$(git rev-parse --short HEAD)
+    echo "{"
+    echo "  \"status\": \"pushed\","
+    echo "  \"hash\": \"${HASH}\","
+    echo "  \"branch\": \"${BRANCH}\","
+    echo "  \"files\": ${FILES_CHANGED:-0},"
+    echo "  \"message\": \"${COMMIT_MSG}\""
+    echo "}"
+    ;;
+esac

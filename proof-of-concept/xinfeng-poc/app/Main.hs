@@ -4,7 +4,7 @@ import Xinfeng.Syntax
 import Xinfeng.Parser
 import Xinfeng.Checker
 import System.Environment (getArgs)
-import System.Exit (exitFailure)
+import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 
 -- | Debug: show token stream
@@ -41,50 +41,133 @@ ppBranch (Branch c vars body) =
 -- | Pretty print a type error
 ppError :: TypeError -> String
 ppError (TypeMismatch expected actual term _ty) =
-  "❌ Type mismatch\n" ++
-  "  Expected type: " ++ ppTerm expected ++ "\n" ++
-  "  Actual type:   " ++ ppTerm actual ++ "\n" ++
-  "  Term:          " ++ ppTerm term
+  "type mismatch"
 ppError (UniverseMismatch expected actual) =
-  "❌ Universe mismatch\n" ++
-  "  Expected universe: " ++ show expected ++ "\n" ++
-  "  Actual universe:   " ++ show actual
+  "universe mismatch (expected " ++ show expected ++ ", got " ++ show actual ++ ")"
 ppError (NotAFunctionType t) =
-  "❌ Not a function type:\n  " ++ ppTerm t
+  "not a function type: " ++ ppTerm t
 ppError (UnknownName n) =
-  "❌ Unknown name: " ++ n
+  "unknown name: " ++ n
 ppError (InvalidDataType n) =
-  "❌ Invalid data type: " ++ n
+  "invalid data type: " ++ n
 ppError (MatchBranchMismatch c t1 t2) =
-  "❌ Match branch mismatch for " ++ c ++ "\n" ++
-  "  Expected: " ++ ppTerm t1 ++ "\n" ++
-  "  Actual:   " ++ ppTerm t2
-ppError (Other msg) = "❌ " ++ msg
+  "match branch mismatch for " ++ c
+ppError (Other msg) = msg
 
--- | Load definitions and type check them
+-- | Render interface only (type sigs, no bodies)
+renderInterface :: [Definition] -> String
+renderInterface = unlines . map defInterface
+  where
+    defInterface d = case defBody d of
+      Data dt -> "data " ++ dataName dt ++
+                 " = " ++ intercalate " | " (map conName (dataCons dt))
+      _       -> defName d ++ " : " ++ ppTerm (defType d)
+    intercalate sep [] = ""
+    intercalate sep [x] = x
+    intercalate sep (x:xs) = x ++ sep ++ intercalate sep xs
+
+-- | JSON output types
+data JsonValue
+  = JStr String
+  | JNum Int
+  | JBool Bool
+  | JList [JsonValue]
+  | JObj [(String, JsonValue)]
+  | JNull
+
+toJson :: JsonValue -> String
+toJson (JStr s) = show s
+toJson (JNum n) = show n
+toJson (JBool b) = if b then "true" else "false"
+toJson JNull = "null"
+toJson (JList vs) = "[" ++ commaSep (map toJson vs) ++ "]"
+toJson (JObj kvs) = "{" ++ commaSep (map (\(k,v) -> show k ++ ": " ++ toJson v) kvs) ++ "]"
+
+-- | JSON helper - safely escape and build
+renderJson :: [(String, JsonValue)] -> String
+renderJson fields = "{" ++ commaSep (map (\(k,v) -> jsonStr k ++ ": " ++ toJson v) fields) ++ "}"
+
+jsonStr :: String -> String
+jsonStr s = "\"" ++ escape s ++ "\""
+  where
+    escape = concatMap (\c -> case c of
+      '"' -> "\\\""
+      '\\' -> "\\\\"
+      '\n' -> "\\n"
+      '\t' -> "\\t"
+      c -> [c])
+
+commaSep :: [String] -> String
+commaSep [] = ""
+commaSep [x] = x
+commaSep (x:xs) = x ++ "," ++ commaSep xs
+
+-- | Check definitions and return results
+checkAndReturn :: String -> IO (Either String [Definition])
+checkAndReturn input = case parseDefinitions input of
+  Left err -> return (Left err)
+  Right defs -> return (Right defs)
+
+-- | Run type checks on definitions
+runChecks :: [Definition] -> [(String, Either TypeError ())]
+runChecks defs = go [] defs
+  where
+    go _ [] = []
+    go ctx (d : rest) =
+      let result = check ctx (defBody d) (defType d)
+          ctx' = (defName d, (defType d, defBody d)) : ctx
+      in (defName d, result) : go ctx' rest
+
+-- | Print the result for a definition (human-readable)
+printResult :: Definition -> Either TypeError () -> IO ()
+printResult d (Right ()) =
+  putStrLn $ "✅ " ++ defName d ++ " : " ++ ppTerm (defType d)
+printResult d (Left err) = do
+  hPutStrLn stderr $ "❌ " ++ defName d ++ " — " ++ ppError err
+  hPutStrLn stderr $ "  Definition body: " ++ ppTerm (defBody d)
+
+-- | Load definitions and type check them (human mode)
 loadAndCheck :: String -> IO ()
 loadAndCheck input = case parseDefinitions input of
   Left err -> do
     hPutStrLn stderr $ "Parse error: " ++ err
     exitFailure
   Right defs -> do
-    let results = checkDefinitions [] defs
+    let results = runChecks defs
     sequence_ (zipWith printResult defs results)
 
--- | Check a list of definitions sequentially, building context
-checkDefinitions :: Context -> [Definition] -> [Either TypeError ()]
-checkDefinitions ctx [] = []
-checkDefinitions ctx (d : rest) =
-  let result = check ctx (defBody d) (defType d)
-      ctx' = (defName d, (defType d, defBody d)) : ctx
-  in result : checkDefinitions ctx' rest
-
--- | Print the result for a definition
-printResult :: Definition -> Either TypeError () -> IO ()
-printResult d (Right ()) =
-  putStrLn $ "✅ " ++ defName d ++ " : " ++ ppTerm (defType d)
-printResult d (Left err) = do
-  hPutStrLn stderr $ "❌ " ++ defName d ++ " — " ++ ppError err
+-- | Output JSON results
+outputJSON :: String -> IO ()
+outputJSON input = do
+  case parseDefinitions input of
+    Left err -> do
+      putStrLn $ renderJson
+        [("status", JStr "error")
+        ,("message", JStr err)
+        ]
+      exitFailure
+    Right defs -> do
+      let results = runChecks defs
+      let defResults = map (\(d, r) -> case r of
+            Right () ->
+              renderJson
+                [("name", JStr (defName d))
+                ,("status", JStr "pass")
+                ,("type", JStr (ppTerm (defType d)))
+                ]
+            Left e ->
+              renderJson
+                [("name", JStr (defName d))
+                ,("status", JStr "fail")
+                ,("type", JStr (ppTerm (defType d)))
+                ,("error", JStr (ppError e))
+                ]
+            ) (zip defs results)
+      let allPass = all (\(_,r) -> case r of Right () -> True; Left _ -> False) results
+      putStrLn $ renderJson
+        [("status", JStr (if allPass then "pass" else "fail"))
+        ,("definitions", JStr "[" ++ commaSep defResults ++ "]")
+        ]
 
 main :: IO ()
 main = do
@@ -96,6 +179,26 @@ main = do
     ("--tokens" : _) -> do
       content <- getContents
       dbgTokens content
+    ("--interface" : file : _) -> do
+      content <- readFile file
+      case parseDefinitions content of
+        Left err -> do
+          hPutStrLn stderr $ "Parse error: " ++ err
+          exitFailure
+        Right defs -> putStrLn (renderInterface defs)
+    ("--interface" : _) -> do
+      content <- getContents
+      case parseDefinitions content of
+        Left err -> do
+          hPutStrLn stderr $ "Parse error: " ++ err
+          exitFailure
+        Right defs -> putStrLn (renderInterface defs)
+    ("--json" : file : _) -> do
+      content <- readFile file
+      outputJSON content
+    ("--json" : _) -> do
+      content <- getContents
+      outputJSON content
     [] -> do
       input <- getContents
       loadAndCheck input
@@ -103,5 +206,5 @@ main = do
       content <- readFile file
       loadAndCheck content
     _ -> do
-      hPutStrLn stderr "Usage: xinfeng-poc [--tokens] [file]"
+      hPutStrLn stderr "Usage: xinfeng-poc [--json|--interface|--tokens] [file]"
       exitFailure
