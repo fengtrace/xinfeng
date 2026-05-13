@@ -22,3 +22,16 @@ executable xinfeng-poc
     , base        >=4.17
   default-language: Haskell2010
   ghc-options:      -Wall
+
+test-suite xinfeng-tests
+  type:             exitcode-stdio-1.0
+  main-is:          RunTests.hs
+  hs-source-dirs:   test, src
+  other-modules:
+    , Xinfeng.Syntax
+    , Xinfeng.Parser
+    , Xinfeng.Checker
+    , Xinfeng.Eval
+  build-depends:
+    , base        >=4.17
+  default-language: Haskell2010

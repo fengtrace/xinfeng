@@ -35,7 +35,8 @@ ppAtom t = ppTerm t
 
 ppBranch :: Branch -> String
 ppBranch (Branch c [] body) = "  | " ++ c ++ " → " ++ ppTerm body
-ppBranch (Branch c vars body) = "  | " ++ c ++ " " ++ unwords vars ++ " → " ++ ppTerm body
+ppBranch (Branch c vars body) =
+  "  | " ++ c ++ " " ++ unwords vars ++ " → " ++ ppTerm body
 
 -- | Pretty print a type error
 ppError :: TypeError -> String
@@ -84,7 +85,6 @@ printResult d (Right ()) =
   putStrLn $ "✅ " ++ defName d ++ " : " ++ ppTerm (defType d)
 printResult d (Left err) = do
   hPutStrLn stderr $ "❌ " ++ defName d ++ " — " ++ ppError err
-  hPutStrLn stderr $ "  Definition body: " ++ ppTerm (defBody d)
 
 main :: IO ()
 main = do
