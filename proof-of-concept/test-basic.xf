@@ -1,0 +1,12 @@
+;; 信风 POC test — basic types and functions
+
+;; Define Bool
+(data Bool
+  True
+  False)
+
+;; Define not : Bool → Bool
+(define not (Π (b : Bool) Bool)
+  (λ b (match b
+    (True False)
+    (False True))))

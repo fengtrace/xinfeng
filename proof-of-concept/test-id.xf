@@ -1,0 +1,8 @@
+;; Test: just Bool data type
+(data Bool
+  True
+  False)
+
+;; Test: identity function
+(define id (Π (b : Bool) Bool)
+  (λ b b))
