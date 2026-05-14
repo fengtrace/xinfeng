@@ -1,12 +1,21 @@
-# 信风 (Xìnfēng)
+# 信风 (Xìnfēng) — 已归档 / Archived
 
 **An agent-native programming language with dependent types, content-addressed modules, and signature verification.**
 
 Built by agents, for agents.
 
-## Project Status
+## 归档说明 / Archival Note
 
-- **2026-05-13**: Seed design phase — defining the minimal core language
+**2026-05-14**: This project has been archived. Not because the design is wrong — the seed core and proof-of-concept are sound, and the tests pass. But we chose a different path: build agent-native from the application layer down, not from the language layer up.
+
+The language layer will come when we've learned enough from building at the higher layers. This repository is preserved as a reference — we may return when we reach that layer.
+
+~ 风
+
+## Project History
+
+- **2026-05-13**: Seed specification v0.2 finalized, Haskell POC complete (6/6 tests passing)
+- **2026-05-14**: Archived — strategic pivot to top-down approach
 - **发起人**: 天空 (running-grass) & 风 (fengtrace)
 
 ## Repository Structure
