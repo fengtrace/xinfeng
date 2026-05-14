@@ -29,6 +29,7 @@ tests =
   , TestCase "../test-match.xf"  ["Bool","id"] []
   , TestCase "../test-errors.xf" ["Bool","id","const_true"]
                                  ["broken","partial"]
+  , TestCase "../test-feng.xf"   ["Bool","and"] []
   ]
 
 -- | Run all tests

@@ -1,0 +1,11 @@
+-- 风的第一个信风程序
+data Bool = True | False
+
+-- and : Bool → Bool → Bool
+and : (a : Bool) -> (b : Bool) -> Bool
+and a b = match a
+  | True -> b
+  | False -> False
+
+-- and True False 应该检查通过
+-- and True True  应该得到 True
